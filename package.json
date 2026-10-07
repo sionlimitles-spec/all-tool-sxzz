@@ -1,6 +1,6 @@
 {
   "name": "web-all-tool",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -11,7 +11,9 @@
   "dependencies": {
     "next": "14.2.15",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "lucide-react": "^0.445.0",
+    "clsx": "^2.1.1"
   },
   "devDependencies": {
     "@types/node": "^20",
