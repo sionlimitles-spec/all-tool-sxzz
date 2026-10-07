@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import * as I from "lucide-react";
 
+/* ============ UTILS ============ */
 export const copy = async (t) => {
   try { await navigator.clipboard.writeText(t); return true; }
   catch {
@@ -10,40 +11,54 @@ export const copy = async (t) => {
       const ta = document.createElement("textarea");
       ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0";
       document.body.appendChild(ta); ta.select(); document.execCommand("copy");
-      document.body.removeChild(ta);
-      return true;
+      document.body.removeChild(ta); return true;
     } catch { return false; }
   }
 };
 
+/* Auto-download via blob (works cross-origin karena lewat proxy) */
+export const autoDownload = async (url, filename, onProgress) => {
+  const proxyUrl = url.startsWith("http") ? `/api/proxy?url=${encodeURIComponent(url)}` : url;
+  const res = await fetch(proxyUrl);
+  if (!res.ok) throw new Error("Gagal mengunduh file.");
+  const total = Number(res.headers.get("content-length")) || 0;
+  const reader = res.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.length;
+    if (onProgress && total) onProgress(Math.round((loaded / total) * 100));
+  }
+  const blob = new Blob(chunks);
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = filename || "download";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+  return true;
+};
+
 const fmt = (n) => !n ? "0" : n > 1e6 ? (n / 1e6).toFixed(1) + "M" : n > 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n);
 
-const F = ({ label, ...p }) => (
-  <div style={{ flex: 1, minWidth: 100 }}>
-    <div className="tag" style={{ marginBottom: 5 }}>{label}</div>
-    <input className="inp" {...p} />
-  </div>
-);
-
-/* ============ TEXT TOOLS ============ */
+/* ============ TEXT ============ */
 export function WordCounter() {
   const [t, setT] = useState("");
   const w = t.trim() ? t.trim().split(/\s+/).length : 0;
   const s = t.split(/[.!?]+/).filter((x) => x.trim()).length;
   const p = t.split(/\n+/).filter((x) => x.trim()).length;
-  const stats = [
-    ["Kata", w], ["Karakter", t.length], ["Tanpa Spasi", t.replace(/\s/g, "").length],
-    ["Kalimat", s], ["Paragraf", p], ["Menit Baca", Math.ceil(w / 200)],
-  ];
+  const stats = [["Kata", w], ["Karakter", t.length], ["Tanpa Spasi", t.replace(/\s/g, "").length], ["Kalimat", s], ["Paragraf", p], ["Menit Baca", Math.ceil(w / 200)]];
   return (
     <div className="col">
       <textarea className="txa" rows={10} value={t} onChange={(e) => setT(e.target.value)} placeholder="Tulis atau tempel teks di sini..." />
       <div className="grid">
         {stats.map(([l, v]) => (
-          <div key={l} className="card">
-            <div className="stat">{v}</div>
-            <div className="mut" style={{ marginTop: 4 }}>{l}</div>
-          </div>
+          <div key={l} className="card"><div className="stat">{v}</div><div className="mut" style={{ marginTop: 6 }}>{l}</div></div>
         ))}
       </div>
       <button className="btn btn-s" onClick={() => setT("")} style={{ alignSelf: "flex-start" }}>Bersihkan</button>
@@ -65,11 +80,9 @@ export function CaseConverter() {
   ];
   return (
     <div className="col">
-      <textarea className="txa" rows={7} value={t} onChange={(e) => setT(e.target.value)} placeholder="Masukkan teks..." />
+      <textarea className="txa" rows={7} value={t} onChange={(e) => setT(e.target.value)} />
       <div className="row">
-        {ops.map(([l, f]) => (
-          <button key={l} className="btn btn-s" onClick={() => setT(f(t))}>{l}</button>
-        ))}
+        {ops.map(([l, f]) => <button key={l} className="btn btn-s" onClick={() => setT(f(t))}>{l}</button>)}
         <button className="btn btn-p" onClick={() => copy(t)}><I.Copy size={14} />Copy</button>
       </div>
     </div>
@@ -80,42 +93,21 @@ export function LoremIpsum() {
   const [n, setN] = useState(3);
   const [type, setType] = useState("paragraphs");
   const [out, setOut] = useState("");
-  const W = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua enim ad minim veniam quis nostrud exercitation ullamco laboris nisi aliquip ex ea commodo consequat duis aute irure in reprehenderit voluptate velit esse cillum eu fugiat nulla pariatur".split(" ");
+  const W = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua enim ad minim veniam quis nostrud exercitation ullamco laboris nisi aliquip ex ea commodo consequat".split(" ");
   const gen = () => {
     const r = () => W[Math.floor(Math.random() * W.length)];
     if (type === "words") return setOut(Array.from({ length: n }, r).join(" "));
-    if (type === "sentences")
-      return setOut(
-        Array.from({ length: n }, () =>
-          Array.from({ length: 10 + Math.floor(Math.random() * 8) }, r).join(" ").replace(/^\w/, (c) => c.toUpperCase()) + "."
-        ).join(" ")
-      );
-    setOut(
-      Array.from({ length: n }, () =>
-        Array.from({ length: 4 + Math.floor(Math.random() * 3) }, () =>
-          Array.from({ length: 10 + Math.floor(Math.random() * 6) }, r).join(" ").replace(/^\w/, (c) => c.toUpperCase()) + "."
-        ).join(" ")
-      ).join("\n\n")
-    );
+    if (type === "sentences") return setOut(Array.from({ length: n }, () => Array.from({ length: 10 + Math.floor(Math.random() * 8) }, r).join(" ").replace(/^\w/, (c) => c.toUpperCase()) + ".").join(" "));
+    setOut(Array.from({ length: n }, () => Array.from({ length: 4 }, () => Array.from({ length: 10 }, r).join(" ").replace(/^\w/, (c) => c.toUpperCase()) + ".").join(" ")).join("\n\n"));
   };
   return (
     <div className="col">
       <div className="card">
         <div className="row">
-          <div style={{ width: 100 }}>
-            <div className="tag" style={{ marginBottom: 5 }}>Jumlah</div>
-            <input type="number" className="inp" value={n} onChange={(e) => setN(+e.target.value)} min={1} max={50} />
-          </div>
-          <div style={{ width: 150 }}>
-            <div className="tag" style={{ marginBottom: 5 }}>Tipe</div>
-            <select className="inp" value={type} onChange={(e) => setType(e.target.value)}>
-              <option value="paragraphs">Paragraf</option>
-              <option value="sentences">Kalimat</option>
-              <option value="words">Kata</option>
-            </select>
-          </div>
-          <button className="btn btn-p" onClick={gen} style={{ alignSelf: "flex-end" }}><I.RefreshCw size={14} />Generate</button>
-          {out && <button className="btn btn-s" style={{ alignSelf: "flex-end" }} onClick={() => copy(out)}><I.Copy size={14} />Copy</button>}
+          <div style={{ width: 100 }}><div className="tag" style={{ marginBottom: 6 }}>Jumlah</div><input type="number" className="inp" value={n} onChange={(e) => setN(+e.target.value)} min={1} max={50} /></div>
+          <div style={{ width: 150 }}><div className="tag" style={{ marginBottom: 6 }}>Tipe</div><select className="inp" value={type} onChange={(e) => setType(e.target.value)}><option value="paragraphs">Paragraf</option><option value="sentences">Kalimat</option><option value="words">Kata</option></select></div>
+          <button className="btn btn-p" style={{ alignSelf: "flex-end" }} onClick={gen}>Generate</button>
+          {out && <button className="btn btn-s" style={{ alignSelf: "flex-end" }} onClick={() => copy(out)}>Copy</button>}
         </div>
       </div>
       {out && <textarea className="txa" rows={12} value={out} readOnly />}
@@ -126,8 +118,7 @@ export function LoremIpsum() {
 export function TextDiff() {
   const [a, setA] = useState("");
   const [b, setB] = useState("");
-  const A = a.split("\n");
-  const B = b.split("\n");
+  const A = a.split("\n"), B = b.split("\n");
   const max = Math.max(A.length, B.length);
   return (
     <div className="col">
@@ -141,8 +132,8 @@ export function TextDiff() {
             const same = A[i] === B[i];
             return (
               <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: "3px 0" }}>
-                <span style={{ background: same ? "transparent" : "rgba(239,68,68,0.12)", color: same ? "var(--text)" : "#ef4444", padding: "3px 8px", borderRadius: 6 }}>{A[i] || " "}</span>
-                <span style={{ background: same ? "transparent" : "rgba(34,197,94,0.12)", color: same ? "var(--text)" : "#22c55e", padding: "3px 8px", borderRadius: 6 }}>{B[i] || " "}</span>
+                <span style={{ background: same ? "transparent" : "rgba(239,68,68,0.12)", color: same ? "var(--text)" : "var(--red)", padding: "3px 8px", borderRadius: 6 }}>{A[i] || " "}</span>
+                <span style={{ background: same ? "transparent" : "rgba(34,197,94,0.12)", color: same ? "var(--text)" : "var(--green)", padding: "3px 8px", borderRadius: 6 }}>{B[i] || " "}</span>
               </div>
             );
           })}
@@ -158,35 +149,22 @@ export function RemoveDuplicates() {
   const [ci, setCi] = useState(true);
   const [sort, setSort] = useState(false);
   const go = () => {
-    const seen = new Set();
-    const r = [];
-    for (const line of t.split("\n")) {
-      const k = ci ? line : line.toLowerCase();
-      if (!seen.has(k)) { seen.add(k); r.push(line); }
-    }
+    const seen = new Set(), r = [];
+    for (const line of t.split("\n")) { const k = ci ? line : line.toLowerCase(); if (!seen.has(k)) { seen.add(k); r.push(line); } }
     if (sort) r.sort();
     setOut(r.join("\n"));
   };
-  const removed = t ? t.split("\n").length - (out ? out.split("\n").length : 0) : 0;
+  const removed = t && out ? t.split("\n").length - out.split("\n").length : 0;
   return (
     <div className="col">
       <textarea className="txa" rows={8} value={t} onChange={(e) => setT(e.target.value)} placeholder="Satu item per baris..." />
       <div className="row">
-        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
-          <input type="checkbox" checked={ci} onChange={(e) => setCi(e.target.checked)} />Case sensitive
-        </label>
-        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
-          <input type="checkbox" checked={sort} onChange={(e) => setSort(e.target.checked)} />Urutkan
-        </label>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}><input type="checkbox" checked={ci} onChange={(e) => setCi(e.target.checked)} />Case sensitive</label>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}><input type="checkbox" checked={sort} onChange={(e) => setSort(e.target.checked)} />Urutkan</label>
         <button className="btn btn-p" onClick={go}>Proses</button>
-        {out && <button className="btn btn-s" onClick={() => copy(out)}><I.Copy size={14} />Copy</button>}
+        {out && <button className="btn btn-s" onClick={() => copy(out)}>Copy</button>}
       </div>
-      {out && (
-        <>
-          <div className="mut">{removed} baris duplikat dihapus</div>
-          <textarea className="txa" rows={8} value={out} readOnly />
-        </>
-      )}
+      {out && <><div className="mut">{removed} baris duplikat dihapus</div><textarea className="txa" rows={8} value={out} readOnly /></>}
     </div>
   );
 }
@@ -200,21 +178,10 @@ export function TextRepeater() {
     <div className="col">
       <textarea className="txa" rows={4} value={t} onChange={(e) => setT(e.target.value)} placeholder="Teks yang akan diulang..." />
       <div className="row">
-        <div style={{ width: 90 }}>
-          <div className="tag" style={{ marginBottom: 5 }}>Jumlah</div>
-          <input type="number" className="inp" value={n} onChange={(e) => setN(+e.target.value)} min={1} max={500} />
-        </div>
-        <div style={{ width: 150 }}>
-          <div className="tag" style={{ marginBottom: 5 }}>Pemisah</div>
-          <select className="inp" value={sep} onChange={(e) => setSep(e.target.value)}>
-            <option value="\n">Baris baru</option>
-            <option value=" ">Spasi</option>
-            <option value=", ">Koma</option>
-            <option value="">Tanpa</option>
-          </select>
-        </div>
+        <div style={{ width: 90 }}><div className="tag" style={{ marginBottom: 6 }}>Jumlah</div><input type="number" className="inp" value={n} onChange={(e) => setN(+e.target.value)} min={1} max={500} /></div>
+        <div style={{ width: 150 }}><div className="tag" style={{ marginBottom: 6 }}>Pemisah</div><select className="inp" value={sep} onChange={(e) => setSep(e.target.value)}><option value="\n">Baris baru</option><option value=" ">Spasi</option><option value=", ">Koma</option><option value="">Tanpa</option></select></div>
         <button className="btn btn-p" style={{ alignSelf: "flex-end" }} onClick={() => setOut(Array.from({ length: n }, () => t).join(sep))}>Ulangi</button>
-        {out && <button className="btn btn-s" style={{ alignSelf: "flex-end" }} onClick={() => copy(out)}><I.Copy size={14} />Copy</button>}
+        {out && <button className="btn btn-s" style={{ alignSelf: "flex-end" }} onClick={() => copy(out)}>Copy</button>}
       </div>
       {out && <textarea className="txa" rows={8} value={out} readOnly />}
     </div>
@@ -223,26 +190,19 @@ export function TextRepeater() {
 
 export function FancyText() {
   const [t, setT] = useState("Hello World");
-  const [copied, setCopied] = useState("");
   const maps = [
     ["Bold", "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭", "𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇"],
     ["Italic", "𝘈𝘉𝘊𝘋𝘌𝘍𝘎𝘏𝘐𝘑𝘒𝘓𝘔𝘕𝘖𝘗𝘘𝘙𝘚𝘛𝘜𝘝𝘞𝘟𝘠𝘡", "𝘢𝘣𝘤𝘥𝘦𝘧𝘨𝘩𝘪𝘫𝘬𝘭𝘮𝘯𝘰𝘱𝘲𝘳𝘴𝘵𝘶𝘷𝘸𝘹𝘺𝘻"],
     ["Script", "𝒜ℬ𝒞𝒟ℰℱ𝒢ℋℐ𝒥𝒦ℒℳ𝒩𝒪𝒫𝒬ℛ𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵", "𝒶𝒷𝒸𝒹ℯ𝒻ℊ𝒽𝒾𝒿𝓀𝓁𝓂𝓃ℴ𝓅𝓆𝓇𝓈𝓉𝓊𝓋𝓌𝓍𝓎𝓏"],
     ["Mono", "𝙰𝙱𝙲𝙳𝙴𝙵𝙶𝙷𝙸𝙹𝙺𝙻𝙼𝙽𝙾𝙿𝚀𝚁𝚂𝚃𝚄𝚅𝚆𝚇𝚈𝚉", "𝚊𝚋𝚌𝚍𝚎𝚏𝚐𝚑𝚒𝚓𝚔𝚕𝚖𝚗𝚘𝚙𝚚𝚛𝚜𝚝𝚞𝚟𝚠𝚡𝚢𝚣"],
     ["Circle", "ⒶⒷⒸⒹⒺⒻⒼⒽⒾⒿⓀⓁⓂⓃⓄⓅⓆⓇⓈⓉⓊⓋⓌⓍⓎⓏ", "ⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦⓧⓨⓩ"],
-    ["Squared", "🄰🄱🄲🄳🄴🄵🄶🄷🄸🄹🄺🄻🄼🄽🄾🄿🅀🅁🅂🅃🅄🅅🅆🅇🅈🅉", "🄰🄱🄲🄳🄴🄵🄶🄷🄸🄹🄺🄻🄼🄽🄾🄿🅀🅁🅂🅃🅄🅅🅆🅇🅈🅉"],
   ];
-  const AZ = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  const az = "abcdefghijklmnopqrstuvwxyz";
-  const conv = (txt, up, lo) =>
-    txt.split("").map((c) => {
-      const i = AZ.indexOf(c);
-      if (i >= 0) return up[i];
-      const j = az.indexOf(c);
-      if (j >= 0) return lo[j];
-      return c;
-    }).join("");
-  const cp = async (v, n) => { if (await copy(v)) { setCopied(n); setTimeout(() => setCopied(""), 1500); } };
+  const AZ = "ABCDEFGHIJKLMNOPQRSTUVWXYZ", az = "abcdefghijklmnopqrstuvwxyz";
+  const conv = (txt, up, lo) => txt.split("").map((c) => {
+    const i = AZ.indexOf(c); if (i >= 0) return up[i];
+    const j = az.indexOf(c); if (j >= 0) return lo[j];
+    return c;
+  }).join("");
   return (
     <div className="col">
       <input className="inp" value={t} onChange={(e) => setT(e.target.value)} />
@@ -250,12 +210,11 @@ export function FancyText() {
         <div key={n} className="card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div className="tag">{n}</div>
-            <div style={{ fontSize: 16, marginTop: 4, wordBreak: "break-all" }}>{conv(t, up, lo)}</div>
+            <div style={{ fontSize: 16, marginTop: 6, wordBreak: "break-all" }}>{conv(t, up, lo)}</div>
           </div>
-          <button className="btn btn-g" onClick={() => cp(conv(t, up, lo), n)}><I.Copy size={14} /></button>
+          <button className="btn btn-g" onClick={() => copy(conv(t, up, lo))}><I.Copy size={14} /></button>
         </div>
       ))}
-      {copied && <div style={{ color: "#22c55e", fontSize: 12 }}>Tersalin: {copied}</div>}
     </div>
   );
 }
@@ -264,54 +223,41 @@ export function ReverseText() {
   const [t, setT] = useState("");
   const [m, setM] = useState("chars");
   const [out, setOut] = useState("");
-  const go = () =>
-    m === "chars" ? setOut(t.split("").reverse().join(""))
-    : m === "words" ? setOut(t.split(/\s+/).reverse().join(" "))
-    : setOut(t.split("\n").reverse().join("\n"));
+  const go = () => m === "chars" ? setOut(t.split("").reverse().join("")) : m === "words" ? setOut(t.split(/\s+/).reverse().join(" ")) : setOut(t.split("\n").reverse().join("\n"));
   return (
     <div className="col">
       <textarea className="txa" rows={5} value={t} onChange={(e) => setT(e.target.value)} />
       <div className="row">
-        {[["chars", "Karakter"], ["words", "Kata"], ["lines", "Baris"]].map(([k, l]) => (
-          <button key={k} className={`chip ${m === k ? "active" : ""}`} onClick={() => setM(k)}>{l}</button>
-        ))}
+        {[["chars", "Karakter"], ["words", "Kata"], ["lines", "Baris"]].map(([k, l]) => <button key={k} className={`chip ${m === k ? "active" : ""}`} onClick={() => setM(k)}>{l}</button>)}
         <button className="btn btn-p" onClick={go}>Balik</button>
-        {out && <button className="btn btn-s" onClick={() => copy(out)}><I.Copy size={14} />Copy</button>}
+        {out && <button className="btn btn-s" onClick={() => copy(out)}>Copy</button>}
       </div>
       {out && <textarea className="txa" rows={5} value={out} readOnly />}
     </div>
   );
 }
 
-/* ============ DEVELOPER TOOLS ============ */
+/* ============ DEVELOPER ============ */
 export function JsonFormatter() {
   const [i, setI] = useState("");
   const [o, setO] = useState("");
   const [e, setE] = useState("");
-  const [copied, setCopied] = useState(false);
   const fmt2 = (min) => {
     try { const p = JSON.parse(i); setO(min ? JSON.stringify(p) : JSON.stringify(p, null, 2)); setE(""); }
     catch (err) { setE(err.message); setO(""); }
   };
-  const cp = async () => { if (await copy(o)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } };
   return (
     <div className="col">
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <div>
-          <div className="tag" style={{ marginBottom: 5 }}>INPUT</div>
-          <textarea className="txa" rows={14} value={i} onChange={(e) => setI(e.target.value)} placeholder='{"name":"value"}' />
-        </div>
-        <div>
-          <div className="tag" style={{ marginBottom: 5 }}>OUTPUT</div>
-          <textarea className="txa" rows={14} value={o} readOnly />
-        </div>
+        <div><div className="tag" style={{ marginBottom: 6 }}>INPUT</div><textarea className="txa" rows={14} value={i} onChange={(e) => setI(e.target.value)} placeholder='{"name":"value"}' /></div>
+        <div><div className="tag" style={{ marginBottom: 6 }}>OUTPUT</div><textarea className="txa" rows={14} value={o} readOnly /></div>
       </div>
       <div className="row">
-        <button className="btn btn-p" onClick={() => fmt2(false)}><I.Maximize2 size={14} />Format</button>
-        <button className="btn btn-s" onClick={() => fmt2(true)}><I.Minimize2 size={14} />Minify</button>
-        {o && <button className="btn btn-s" onClick={cp}><I.Copy size={14} />{copied ? "Tersalin!" : "Copy"}</button>}
+        <button className="btn btn-p" onClick={() => fmt2(false)}>Format</button>
+        <button className="btn btn-s" onClick={() => fmt2(true)}>Minify</button>
+        {o && <button className="btn btn-s" onClick={() => copy(o)}>Copy</button>}
       </div>
-      {e && <div style={{ padding: 12, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, color: "#ef4444", fontSize: 13 }}>{e}</div>}
+      {e && <div style={{ padding: 12, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, color: "var(--red)", fontSize: 13 }}>{e}</div>}
     </div>
   );
 }
@@ -327,14 +273,12 @@ export function Base64Tool() {
   return (
     <div className="col">
       <div className="row">
-        {["encode", "decode"].map((x) => (
-          <button key={x} className={`chip ${m === x ? "active" : ""}`} onClick={() => setM(x)}>{x === "encode" ? "Encode" : "Decode"}</button>
-        ))}
+        {["encode", "decode"].map((x) => <button key={x} className={`chip ${m === x ? "active" : ""}`} onClick={() => setM(x)}>{x === "encode" ? "Encode" : "Decode"}</button>)}
       </div>
       <textarea className="txa" rows={6} value={i} onChange={(e) => setI(e.target.value)} />
       <div className="row">
         <button className="btn btn-p" onClick={go}>{m === "encode" ? "Encode" : "Decode"}</button>
-        {o && <button className="btn btn-s" onClick={() => copy(o)}><I.Copy size={14} />Copy</button>}
+        {o && <button className="btn btn-s" onClick={() => copy(o)}>Copy</button>}
       </div>
       {o && <textarea className="txa" rows={6} value={o} readOnly />}
     </div>
@@ -351,7 +295,7 @@ export function UrlEncoder() {
         <button className="btn btn-p" onClick={() => setO(encodeURIComponent(i))}>Encode</button>
         <button className="btn btn-s" onClick={() => setO(decodeURIComponent(i))}>Decode</button>
         <button className="btn btn-s" onClick={() => setO(encodeURI(i))}>Encode URI</button>
-        {o && <button className="btn btn-s" onClick={() => copy(o)}><I.Copy size={14} />Copy</button>}
+        {o && <button className="btn btn-s" onClick={() => copy(o)}>Copy</button>}
       </div>
       {o && <textarea className="txa" rows={4} value={o} readOnly />}
     </div>
@@ -369,7 +313,7 @@ export function HtmlEncoder() {
       <div className="row">
         <button className="btn btn-p" onClick={enc}>Encode</button>
         <button className="btn btn-s" onClick={dec}>Decode</button>
-        {o && <button className="btn btn-s" onClick={() => copy(o)}><I.Copy size={14} />Copy</button>}
+        {o && <button className="btn btn-s" onClick={() => copy(o)}>Copy</button>}
       </div>
       {o && <textarea className="txa" rows={5} value={o} readOnly />}
     </div>
@@ -395,19 +339,11 @@ export function JwtDecoder() {
     <div className="col">
       <textarea className="txa" rows={3} value={t} onChange={(e) => setT(e.target.value)} placeholder="eyJhbGciOi..." />
       <button className="btn btn-p" style={{ alignSelf: "flex-start" }} onClick={go}>Decode</button>
-      {e && <div style={{ padding: 12, background: "rgba(239,68,68,0.1)", borderRadius: 10, color: "#ef4444", fontSize: 13 }}>{e}</div>}
-      {h && (
-        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>HEADER</div>
-            <textarea className="txa" rows={10} value={h} readOnly />
-          </div>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>PAYLOAD</div>
-            <textarea className="txa" rows={10} value={p} readOnly />
-          </div>
-        </div>
-      )}
+      {e && <div style={{ padding: 12, background: "rgba(239,68,68,0.1)", borderRadius: 10, color: "var(--red)", fontSize: 13 }}>{e}</div>}
+      {h && <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <div><div className="tag" style={{ marginBottom: 6 }}>HEADER</div><textarea className="txa" rows={10} value={h} readOnly /></div>
+        <div><div className="tag" style={{ marginBottom: 6 }}>PAYLOAD</div><textarea className="txa" rows={10} value={p} readOnly /></div>
+      </div>}
     </div>
   );
 }
@@ -463,8 +399,8 @@ export function HashGenerator() {
   };
   return (
     <div className="col">
-      <textarea className="txa" rows={3} value={i} onChange={(e) => setI(e.target.value)} placeholder="Teks yang akan di-hash..." />
-      <button className="btn btn-p" style={{ alignSelf: "flex-start" }} onClick={go}>Generate Hash</button>
+      <textarea className="txa" rows={3} value={i} onChange={(e) => setI(e.target.value)} />
+      <button className="btn btn-p" style={{ alignSelf: "flex-start" }} onClick={go}>Generate</button>
       <div className="col">
         {list.map(([n, v]) => (
           <div key={n} className="card">
@@ -472,7 +408,7 @@ export function HashGenerator() {
               <span className="tag">{n}</span>
               <button className="btn btn-g" onClick={() => copy(v)}><I.Copy size={14} /></button>
             </div>
-            <div style={{ marginTop: 8, fontFamily: "monospace", fontSize: 11, wordBreak: "break-all", lineHeight: 1.5 }}>{v}</div>
+            <div style={{ marginTop: 8, fontFamily: "monospace", fontSize: 11, wordBreak: "break-all", lineHeight: 1.6 }}>{v}</div>
           </div>
         ))}
       </div>
@@ -499,18 +435,11 @@ export function UuidGenerator() {
     <div className="col">
       <div className="card">
         <div className="row">
-          <div style={{ width: 100 }}>
-            <div className="tag" style={{ marginBottom: 5 }}>Jumlah</div>
-            <input type="number" className="inp" value={n} onChange={(e) => setN(+e.target.value)} min={1} max={100} />
-          </div>
-          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, alignSelf: "flex-end" }}>
-            <input type="checkbox" checked={up} onChange={(e) => setUp(e.target.checked)} />Uppercase
-          </label>
-          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, alignSelf: "flex-end" }}>
-            <input type="checkbox" checked={nd} onChange={(e) => setNd(e.target.checked)} />Tanpa tanda hubung
-          </label>
-          <button className="btn btn-p" style={{ alignSelf: "flex-end" }} onClick={go}><I.RefreshCw size={14} />Generate</button>
-          {list.length > 0 && <button className="btn btn-s" style={{ alignSelf: "flex-end" }} onClick={() => copy(list.join("\n"))}><I.Copy size={14} />Semua</button>}
+          <div style={{ width: 100 }}><div className="tag" style={{ marginBottom: 6 }}>Jumlah</div><input type="number" className="inp" value={n} onChange={(e) => setN(+e.target.value)} min={1} max={100} /></div>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, alignSelf: "flex-end" }}><input type="checkbox" checked={up} onChange={(e) => setUp(e.target.checked)} />Uppercase</label>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, alignSelf: "flex-end" }}><input type="checkbox" checked={nd} onChange={(e) => setNd(e.target.checked)} />Tanpa strip</label>
+          <button className="btn btn-p" style={{ alignSelf: "flex-end" }} onClick={go}>Generate</button>
+          {list.length > 0 && <button className="btn btn-s" style={{ alignSelf: "flex-end" }} onClick={() => copy(list.join("\n"))}>Copy Semua</button>}
         </div>
       </div>
       <div className="col">
@@ -535,37 +464,22 @@ export function RegexTester() {
       const re = new RegExp(p, f);
       const m = t.match(re);
       const re2 = new RegExp(p, f.includes("g") ? f : f + "g");
-      const hl = t.replace(re2, (x) => `<mark style="background:var(--p);color:#fff;border-radius:4px;padding:1px 3px">${x}</mark>`);
+      const hl = t.replace(re2, (x) => `<mark style="background:var(--p);color:#fff;border-radius:4px;padding:1px 4px">${x}</mark>`);
       return { matches: m ? Array.from(m) : [], err: "", hl };
     } catch (e) { return { matches: [], err: e.message, hl: t }; }
   }, [p, f, t]);
   return (
     <div className="col">
       <div className="grid" style={{ gridTemplateColumns: "2fr 1fr" }}>
-        <div>
-          <div className="tag" style={{ marginBottom: 5 }}>PATTERN</div>
-          <input className="inp" style={{ fontFamily: "monospace" }} value={p} onChange={(e) => setP(e.target.value)} placeholder="\d+" />
-        </div>
-        <div>
-          <div className="tag" style={{ marginBottom: 5 }}>FLAGS</div>
-          <input className="inp" style={{ fontFamily: "monospace" }} value={f} onChange={(e) => setF(e.target.value)} placeholder="g" />
-        </div>
+        <div><div className="tag" style={{ marginBottom: 6 }}>PATTERN</div><input className="inp" style={{ fontFamily: "monospace" }} value={p} onChange={(e) => setP(e.target.value)} placeholder="\d+" /></div>
+        <div><div className="tag" style={{ marginBottom: 6 }}>FLAGS</div><input className="inp" style={{ fontFamily: "monospace" }} value={f} onChange={(e) => setF(e.target.value)} /></div>
       </div>
-      <textarea className="txa" rows={6} value={t} onChange={(e) => setT(e.target.value)} placeholder="Teks untuk diuji..." />
-      {err && <div style={{ padding: 12, background: "rgba(239,68,68,0.1)", borderRadius: 10, color: "#ef4444", fontSize: 13 }}>{err}</div>}
-      {p && !err && (
-        <div className="card">
-          <div className="tag">HIGHLIGHT ({matches.length} MATCH)</div>
-          <div style={{ marginTop: 8, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: hl }} />
-          {matches.length > 0 && (
-            <div className="row" style={{ marginTop: 10 }}>
-              {matches.map((m, i) => (
-                <span key={i} style={{ padding: "3px 9px", borderRadius: 6, background: "var(--ps)", color: "var(--p)", fontFamily: "monospace", fontSize: 11 }}>{m}</span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      <textarea className="txa" rows={6} value={t} onChange={(e) => setT(e.target.value)} />
+      {err && <div style={{ padding: 12, background: "rgba(239,68,68,0.1)", borderRadius: 10, color: "var(--red)", fontSize: 13 }}>{err}</div>}
+      {p && !err && <div className="card">
+        <div className="tag">HIGHLIGHT ({matches.length} MATCH)</div>
+        <div style={{ marginTop: 10, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13, lineHeight: 1.7 }} dangerouslySetInnerHTML={{ __html: hl }} />
+      </div>}
     </div>
   );
 }
@@ -580,13 +494,13 @@ export function TimestampConverter() {
       <div className="card">
         <div className="tag" style={{ marginBottom: 8 }}>TIMESTAMP → TANGGAL</div>
         <input className="inp" style={{ fontFamily: "monospace" }} value={ts} onChange={(e) => setTs(e.target.value)} />
-        <div style={{ marginTop: 10, padding: 12, background: "var(--ps)", borderRadius: 10, fontFamily: "monospace", fontSize: 13 }}>{toDate()}</div>
-        <button className="btn btn-s" style={{ marginTop: 8 }} onClick={() => setTs(String(Math.floor(Date.now() / 1000)))}>Sekarang</button>
+        <div style={{ marginTop: 12, padding: 14, background: "var(--ps)", borderRadius: 11, fontFamily: "monospace", fontSize: 13 }}>{toDate()}</div>
+        <button className="btn btn-s" style={{ marginTop: 10 }} onClick={() => setTs(String(Math.floor(Date.now() / 1000)))}>Sekarang</button>
       </div>
       <div className="card">
         <div className="tag" style={{ marginBottom: 8 }}>TANGGAL → TIMESTAMP</div>
         <input type="datetime-local" className="inp" value={dt} onChange={(e) => setDt(e.target.value)} />
-        <div style={{ marginTop: 10, padding: 12, background: "var(--ps)", borderRadius: 10, fontFamily: "monospace", fontSize: 13 }}>{toTs()}</div>
+        <div style={{ marginTop: 12, padding: 14, background: "var(--ps)", borderRadius: 11, fontFamily: "monospace", fontSize: 13 }}>{toTs()}</div>
       </div>
     </div>
   );
@@ -603,29 +517,23 @@ export function QrGenerator() {
       <div className="card">
         <div className="tag" style={{ marginBottom: 8 }}>TEKS / URL</div>
         <textarea className="txa" rows={4} value={t} onChange={(e) => setT(e.target.value)} placeholder="https://example.com" />
-        <div className="mut" style={{ marginTop: 10 }}>Ukuran: {s}px</div>
+        <div className="mut" style={{ marginTop: 12 }}>Ukuran: {s}px</div>
         <input type="range" min={100} max={600} step={50} value={s} onChange={(e) => setS(+e.target.value)} style={{ width: "100%", accentColor: "var(--p)" }} />
-        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 10 }}>
-          <div>
-            <div className="soft">WARNA QR</div>
-            <input type="color" value={fg} onChange={(e) => setFg(e.target.value)} style={{ width: "100%", height: 40, border: "none", borderRadius: 8, marginTop: 4 }} />
-          </div>
-          <div>
-            <div className="soft">BACKGROUND</div>
-            <input type="color" value={bg} onChange={(e) => setBg(e.target.value)} style={{ width: "100%", height: 40, border: "none", borderRadius: 8, marginTop: 4 }} />
-          </div>
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 12 }}>
+          <div><div className="soft" style={{ marginBottom: 4 }}>WARNA QR</div><input type="color" value={fg} onChange={(e) => setFg(e.target.value)} style={{ width: "100%", height: 44, border: "none", borderRadius: 10, cursor: "pointer" }} /></div>
+          <div><div className="soft" style={{ marginBottom: 4 }}>BACKGROUND</div><input type="color" value={bg} onChange={(e) => setBg(e.target.value)} style={{ width: "100%", height: 44, border: "none", borderRadius: 10, cursor: "pointer" }} /></div>
         </div>
       </div>
       <div className="card" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
         {url ? (
           <>
-            <img src={url} alt="QR" style={{ borderRadius: 12 }} />
-            <a className="btn btn-p" style={{ marginTop: 12 }} href={url} download="qrcode.png"><I.Download size={14} />Unduh</a>
+            <img src={url} alt="QR" style={{ borderRadius: 14 }} />
+            <a className="btn btn-p" style={{ marginTop: 14 }} href={url} download="qrcode.png"><I.Download size={14} />Unduh</a>
           </>
         ) : (
           <div className="mut" style={{ textAlign: "center" }}>
-            <I.QrCode size={44} style={{ opacity: 0.3, margin: "0 auto 8px" }} />
-            <div>QR code akan muncul di sini</div>
+            <I.QrCode size={48} style={{ opacity: 0.3, margin: "0 auto 10px" }} />
+            <div>QR code muncul di sini</div>
           </div>
         )}
       </div>
@@ -633,7 +541,7 @@ export function QrGenerator() {
   );
 }
 
-/* ============ IMAGE TOOLS ============ */
+/* ============ IMAGE ============ */
 export function ImageCompressor() {
   const [f, setF] = useState(null);
   const [q, setQ] = useState(0.7);
@@ -650,31 +558,20 @@ export function ImageCompressor() {
     c.getContext("2d").drawImage(img, 0, 0);
     c.toBlob((b) => { if (b) setR({ url: URL.createObjectURL(b), size: b.size }); setLoading(false); }, "image/jpeg", q);
   };
-  const dl = async () => {
-    const res = await fetch(r.url);
-    const b = await res.blob();
-    const u = URL.createObjectURL(b);
-    const a = document.createElement("a");
-    a.href = u; a.download = "compressed.jpg"; a.click();
-  };
   return (
     <div className="col">
       <input type="file" className="inp" accept="image/*" onChange={(e) => { setF(e.target.files?.[0] || null); setR(null); }} />
-      {f && (
-        <div className="card">
-          <div className="mut">Ukuran asli: {(f.size / 1024).toFixed(1)} KB</div>
-          <div className="tag" style={{ marginTop: 10 }}>KUALITAS: {Math.round(q * 100)}%</div>
-          <input type="range" min={0.1} max={1} step={0.05} value={q} onChange={(e) => setQ(+e.target.value)} style={{ width: "100%", accentColor: "var(--p)", marginTop: 4 }} />
-          <button className="btn btn-p" style={{ marginTop: 12 }} disabled={loading} onClick={go}>{loading ? "Memproses..." : "Kompres"}</button>
-        </div>
-      )}
-      {r && (
-        <div className="card">
-          <div className="mut">Baru: {(r.size / 1024).toFixed(1)} KB ({Math.round((1 - r.size / f.size) * 100)}% lebih kecil)</div>
-          <img src={r.url} style={{ marginTop: 12, maxHeight: 250, borderRadius: 12, objectFit: "contain" }} />
-          <button className="btn btn-p" style={{ marginTop: 12 }} onClick={dl}><I.Download size={14} />Unduh</button>
-        </div>
-      )}
+      {f && <div className="card">
+        <div className="mut">Ukuran asli: {(f.size / 1024).toFixed(1)} KB</div>
+        <div className="tag" style={{ marginTop: 12 }}>KUALITAS: {Math.round(q * 100)}%</div>
+        <input type="range" min={0.1} max={1} step={0.05} value={q} onChange={(e) => setQ(+e.target.value)} style={{ width: "100%", accentColor: "var(--p)", marginTop: 6 }} />
+        <button className="btn btn-p" style={{ marginTop: 14 }} disabled={loading} onClick={go}>{loading ? "Memproses..." : "Kompres"}</button>
+      </div>}
+      {r && <div className="card">
+        <div className="mut">Baru: {(r.size / 1024).toFixed(1)} KB ({Math.round((1 - r.size / f.size) * 100)}% lebih kecil)</div>
+        <img src={r.url} style={{ marginTop: 14, maxHeight: 250, borderRadius: 14, objectFit: "contain" }} />
+        <a className="btn btn-p" style={{ marginTop: 14, display: "inline-flex" }} href={r.url} download="compressed.jpg"><I.Download size={14} />Unduh</a>
+      </div>}
     </div>
   );
 }
@@ -704,49 +601,31 @@ export function ImageResizer() {
   return (
     <div className="col">
       <input type="file" className="inp" accept="image/*" onChange={(e) => e.target.files?.[0] && hf(e.target.files[0])} />
-      {f && (
-        <div className="card">
-          <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-            <div>
-              <div className="tag" style={{ marginBottom: 5 }}>LEBAR</div>
-              <input type="number" className="inp" value={w} onChange={(e) => { const v = +e.target.value; setW(v); if (keep) setH(Math.round(v / ratio)); }} />
-            </div>
-            <div>
-              <div className="tag" style={{ marginBottom: 5 }}>TINGGI</div>
-              <input type="number" className="inp" value={h} onChange={(e) => { const v = +e.target.value; setH(v); if (keep) setW(Math.round(v * ratio)); }} />
-            </div>
-          </div>
-          <label style={{ display: "flex", gap: 6, marginTop: 10, fontSize: 13, alignItems: "center" }}>
-            <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} />Jaga rasio aspek
-          </label>
-          <button className="btn btn-p" style={{ marginTop: 12 }} onClick={go}>Ubah Ukuran</button>
+      {f && <div className="card">
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <div><div className="tag" style={{ marginBottom: 6 }}>LEBAR</div><input type="number" className="inp" value={w} onChange={(e) => { const v = +e.target.value; setW(v); if (keep) setH(Math.round(v / ratio)); }} /></div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>TINGGI</div><input type="number" className="inp" value={h} onChange={(e) => { const v = +e.target.value; setH(v); if (keep) setW(Math.round(v * ratio)); }} /></div>
         </div>
-      )}
-      {r && (
-        <div className="card">
-          <img src={r} style={{ maxHeight: 250, borderRadius: 12 }} />
-          <a className="btn btn-p" style={{ marginTop: 12, display: "inline-flex" }} href={r} download="resized.png"><I.Download size={14} />Unduh</a>
-        </div>
-      )}
+        <label style={{ display: "flex", gap: 8, marginTop: 12, fontSize: 13, alignItems: "center" }}><input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} />Jaga rasio</label>
+        <button className="btn btn-p" style={{ marginTop: 14 }} onClick={go}>Ubah Ukuran</button>
+      </div>}
+      {r && <div className="card">
+        <img src={r} style={{ maxHeight: 250, borderRadius: 14 }} />
+        <a className="btn btn-p" style={{ marginTop: 14, display: "inline-flex" }} href={r} download="resized.png"><I.Download size={14} />Unduh</a>
+      </div>}
     </div>
   );
 }
 
 export function ImageToBase64() {
   const [d, setD] = useState("");
-  const [copied, setCopied] = useState(false);
   const hf = (f) => { const r = new FileReader(); r.onload = () => setD(String(r.result)); r.readAsDataURL(f); };
-  const cp = async () => { if (await copy(d)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } };
   return (
     <div className="col">
       <input type="file" className="inp" accept="image/*" onChange={(e) => e.target.files?.[0] && hf(e.target.files[0])} />
-      {d && (
-        <>
-          <img src={d} style={{ maxHeight: 200, borderRadius: 12, objectFit: "contain" }} />
-          <button className="btn btn-p" style={{ alignSelf: "flex-start" }} onClick={cp}><I.Copy size={14} />{copied ? "Tersalin!" : "Salin Data URI"}</button>
-          <textarea className="txa" rows={6} value={d} readOnly />
-        </>
-      )}
+      {d && <><img src={d} style={{ maxHeight: 200, borderRadius: 14, objectFit: "contain" }} />
+        <button className="btn btn-p" style={{ alignSelf: "flex-start" }} onClick={() => copy(d)}>Copy Data URI</button>
+        <textarea className="txa" rows={6} value={d} readOnly /></>}
     </div>
   );
 }
@@ -769,23 +648,17 @@ export function ImageConverter() {
   return (
     <div className="col">
       <input type="file" className="inp" accept="image/*" onChange={(e) => { setF(e.target.files?.[0] || null); setR(""); }} />
-      {f && (
-        <div className="card">
-          <div className="tag" style={{ marginBottom: 5 }}>FORMAT TUJUAN</div>
-          <select className="inp" value={fmt} onChange={(e) => setFmt(e.target.value)}>
-            <option value="image/png">PNG</option>
-            <option value="image/jpeg">JPEG</option>
-            <option value="image/webp">WebP</option>
-          </select>
-          <button className="btn btn-p" style={{ marginTop: 12 }} onClick={go}>Konversi</button>
-        </div>
-      )}
-      {r && (
-        <div className="card">
-          <img src={r} style={{ maxHeight: 200, borderRadius: 12 }} />
-          <a className="btn btn-p" style={{ marginTop: 12, display: "inline-flex" }} href={r} download={`converted.${fmt.split("/")[1]}`}><I.Download size={14} />Unduh</a>
-        </div>
-      )}
+      {f && <div className="card">
+        <div className="tag" style={{ marginBottom: 6 }}>FORMAT</div>
+        <select className="inp" value={fmt} onChange={(e) => setFmt(e.target.value)}>
+          <option value="image/png">PNG</option><option value="image/jpeg">JPEG</option><option value="image/webp">WebP</option>
+        </select>
+        <button className="btn btn-p" style={{ marginTop: 14 }} onClick={go}>Konversi</button>
+      </div>}
+      {r && <div className="card">
+        <img src={r} style={{ maxHeight: 200, borderRadius: 14 }} />
+        <a className="btn btn-p" style={{ marginTop: 14, display: "inline-flex" }} href={r} download={`converted.${fmt.split("/")[1]}`}><I.Download size={14} />Unduh</a>
+      </div>}
     </div>
   );
 }
@@ -796,25 +669,18 @@ export function BmiCalculator() {
   const [h, setH] = useState(170);
   const bmi = w / Math.pow(h / 100, 2);
   const cat = bmi < 18.5 ? "Kurus" : bmi < 25 ? "Normal" : bmi < 30 ? "Gemuk" : "Obesitas";
-  const c = bmi < 18.5 ? "#3b82f6" : bmi < 25 ? "#22c55e" : bmi < 30 ? "#f59e0b" : "#ef4444";
+  const c = bmi < 18.5 ? "#3b82f6" : bmi < 25 ? "var(--green)" : bmi < 30 ? "var(--yellow)" : "var(--red)";
   return (
     <div className="col">
       <div className="card">
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>BERAT (KG)</div>
-            <input type="number" className="inp" value={w} onChange={(e) => setW(+e.target.value)} />
-          </div>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>TINGGI (CM)</div>
-            <input type="number" className="inp" value={h} onChange={(e) => setH(+e.target.value)} />
-          </div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>BERAT (KG)</div><input type="number" className="inp" value={w} onChange={(e) => setW(+e.target.value)} /></div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>TINGGI (CM)</div><input type="number" className="inp" value={h} onChange={(e) => setH(+e.target.value)} /></div>
         </div>
       </div>
-      <div className="card" style={{ textAlign: "center", padding: 32 }}>
-        <div style={{ fontSize: 52, fontWeight: 700, color: c, letterSpacing: "-0.02em" }}>{bmi.toFixed(1)}</div>
-        <div style={{ marginTop: 6, color: c, fontWeight: 600, fontSize: 16 }}>{cat}</div>
-        <div className="mut" style={{ marginTop: 16 }}>Normal: 18.5 – 24.9 · Gemuk: 25 – 29.9 · Obesitas: 30+</div>
+      <div className="card" style={{ textAlign: "center", padding: 36 }}>
+        <div style={{ fontSize: 58, fontWeight: 800, color: c, letterSpacing: "-0.03em" }}>{bmi.toFixed(1)}</div>
+        <div style={{ marginTop: 8, color: c, fontWeight: 700, fontSize: 18 }}>{cat}</div>
       </div>
     </div>
   );
@@ -834,20 +700,12 @@ export function AgeCalculator() {
   const r = calc();
   return (
     <div className="col">
-      <div className="card">
-        <div className="tag" style={{ marginBottom: 5 }}>TANGGAL LAHIR</div>
-        <input type="date" className="inp" value={b} onChange={(e) => setB(e.target.value)} />
-      </div>
-      {r && (
-        <div className="grid">
-          {[["Tahun", r.y], ["Bulan", r.m], ["Hari", r.d], ["Total Hari", r.td.toLocaleString("id-ID")], ["Total Minggu", r.tw.toLocaleString("id-ID")], ["Total Jam", r.th.toLocaleString("id-ID")]].map(([l, v]) => (
-            <div key={l} className="card">
-              <div className="stat">{v}</div>
-              <div className="mut" style={{ marginTop: 4 }}>{l}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="card"><div className="tag" style={{ marginBottom: 6 }}>TANGGAL LAHIR</div><input type="date" className="inp" value={b} onChange={(e) => setB(e.target.value)} /></div>
+      {r && <div className="grid">
+        {[["Tahun", r.y], ["Bulan", r.m], ["Hari", r.d], ["Total Hari", r.td.toLocaleString("id-ID")], ["Total Minggu", r.tw.toLocaleString("id-ID")], ["Total Jam", r.th.toLocaleString("id-ID")]].map(([l, v]) => (
+          <div key={l} className="card"><div className="stat">{v}</div><div className="mut" style={{ marginTop: 6 }}>{l}</div></div>
+        ))}
+      </div>}
     </div>
   );
 }
@@ -859,21 +717,12 @@ export function Percentage() {
     <div className="col">
       <div className="card">
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>NILAI A</div>
-            <input type="number" className="inp" value={a} onChange={(e) => setA(+e.target.value)} />
-          </div>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>NILAI B</div>
-            <input type="number" className="inp" value={b} onChange={(e) => setB(+e.target.value)} />
-          </div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>NILAI A</div><input type="number" className="inp" value={a} onChange={(e) => setA(+e.target.value)} /></div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>NILAI B</div><input type="number" className="inp" value={b} onChange={(e) => setB(+e.target.value)} /></div>
         </div>
       </div>
-      {[[`${a}% dari ${b}`, ((a / 100) * b).toFixed(2)], [`${a} adalah berapa % dari ${b}`, ((a / b) * 100).toFixed(2) + "%"], [`Perubahan ${a} → ${b}`, (((b - a) / a) * 100).toFixed(2) + "%"]].map(([l, v]) => (
-        <div key={l} className="card">
-          <div className="mut">{l}</div>
-          <div className="stat" style={{ marginTop: 4, fontSize: 26 }}>{v}</div>
-        </div>
+      {[[`${a}% dari ${b}`, ((a / 100) * b).toFixed(2)], [`${a} berapa % dari ${b}`, ((a / b) * 100).toFixed(2) + "%"], [`Perubahan ${a} → ${b}`, (((b - a) / a) * 100).toFixed(2) + "%"]].map(([l, v]) => (
+        <div key={l} className="card"><div className="mut">{l}</div><div className="stat" style={{ marginTop: 6 }}>{v}</div></div>
       ))}
     </div>
   );
@@ -890,25 +739,16 @@ export function LoanCalculator() {
   return (
     <div className="col">
       <div className="card">
-        <div className="tag" style={{ marginBottom: 5 }}>JUMLAH PINJAMAN (Rp)</div>
+        <div className="tag" style={{ marginBottom: 6 }}>JUMLAH PINJAMAN (RP)</div>
         <input type="number" className="inp" value={amt} onChange={(e) => setAmt(+e.target.value)} />
-        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 12 }}>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>BUNGA / TAHUN (%)</div>
-            <input type="number" step={0.1} className="inp" value={rate} onChange={(e) => setRate(+e.target.value)} />
-          </div>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>TENOR (TAHUN)</div>
-            <input type="number" className="inp" value={y} onChange={(e) => setY(+e.target.value)} />
-          </div>
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 14 }}>
+          <div><div className="tag" style={{ marginBottom: 6 }}>BUNGA / TAHUN (%)</div><input type="number" step={0.1} className="inp" value={rate} onChange={(e) => setRate(+e.target.value)} /></div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>TENOR (TAHUN)</div><input type="number" className="inp" value={y} onChange={(e) => setY(+e.target.value)} /></div>
         </div>
       </div>
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
         {[["Cicilan / Bulan", f(monthly)], ["Total Bayar", f(total)], ["Total Bunga", f(interest)]].map(([l, v]) => (
-          <div key={l} className="card">
-            <div className="mut">{l}</div>
-            <div style={{ fontWeight: 700, fontSize: 16, color: "var(--p)", marginTop: 6 }}>{v}</div>
-          </div>
+          <div key={l} className="card"><div className="mut">{l}</div><div style={{ fontWeight: 800, fontSize: 17, color: "var(--p)", marginTop: 8 }}>{v}</div></div>
         ))}
       </div>
     </div>
@@ -942,36 +782,19 @@ export function UnitConverter() {
   return (
     <div className="col">
       <div className="row">
-        {["panjang", "berat", "suhu"].map((x) => (
-          <button key={x} className={`chip ${c === x ? "active" : ""}`} onClick={() => { setC(x); setFrom(0); setTo(1); }}>
-            {x[0].toUpperCase() + x.slice(1)}
-          </button>
-        ))}
+        {["panjang", "berat", "suhu"].map((x) => <button key={x} className={`chip ${c === x ? "active" : ""}`} onClick={() => { setC(x); setFrom(0); setTo(1); }}>{x[0].toUpperCase() + x.slice(1)}</button>)}
       </div>
       <div className="card">
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>NILAI</div>
-            <input type="number" className="inp" value={v} onChange={(e) => setV(+e.target.value)} />
-          </div>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>DARI</div>
-            <select className="inp" value={from} onChange={(e) => setFrom(+e.target.value)}>
-              {U[c].map((u, i) => <option key={u[0]} value={i}>{u[0]}</option>)}
-            </select>
-          </div>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>KE</div>
-            <select className="inp" value={to} onChange={(e) => setTo(+e.target.value)}>
-              {U[c].map((u, i) => <option key={u[0]} value={i}>{u[0]}</option>)}
-            </select>
-          </div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>NILAI</div><input type="number" className="inp" value={v} onChange={(e) => setV(+e.target.value)} /></div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>DARI</div><select className="inp" value={from} onChange={(e) => setFrom(+e.target.value)}>{U[c].map((u, i) => <option key={u[0]} value={i}>{u[0]}</option>)}</select></div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>KE</div><select className="inp" value={to} onChange={(e) => setTo(+e.target.value)}>{U[c].map((u, i) => <option key={u[0]} value={i}>{u[0]}</option>)}</select></div>
         </div>
       </div>
-      <div className="card" style={{ textAlign: "center", padding: 26 }}>
+      <div className="card" style={{ textAlign: "center", padding: 30 }}>
         <div className="mut">{v} {U[c][from][0]} =</div>
-        <div className="stat" style={{ fontSize: 30, marginTop: 8 }}>{convert().toLocaleString("id-ID", { maximumFractionDigits: 6 })}</div>
-        <div className="mut" style={{ marginTop: 4 }}>{U[c][to][0]}</div>
+        <div className="stat" style={{ fontSize: 32, marginTop: 10 }}>{convert().toLocaleString("id-ID", { maximumFractionDigits: 6 })}</div>
+        <div className="mut" style={{ marginTop: 6 }}>{U[c][to][0]}</div>
       </div>
     </div>
   );
@@ -985,7 +808,6 @@ export function PasswordGenerator() {
   const [num, setNum] = useState(true);
   const [sym, setSym] = useState(true);
   const [pw, setPw] = useState("");
-  const [copied, setCopied] = useState(false);
   const gen = useCallback(() => {
     let ch = "";
     if (up) ch += "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -1001,26 +823,23 @@ export function PasswordGenerator() {
   }, [len, up, lo, num, sym]);
   useEffect(() => { gen(); }, [gen]);
   const strength = pw.length >= 20 && up && lo && num && sym ? "Sangat Kuat" : pw.length >= 12 ? "Kuat" : "Lemah";
-  const c = strength === "Sangat Kuat" ? "#22c55e" : strength === "Kuat" ? "#eab308" : "#ef4444";
-  const cp = async () => { if (await copy(pw)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } };
+  const c = strength === "Sangat Kuat" ? "var(--green)" : strength === "Kuat" ? "var(--yellow)" : "var(--red)";
   return (
     <div className="col">
       <div className="card">
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 14, border: "1px solid var(--bd)", borderRadius: 12, fontFamily: "monospace", fontSize: 13, wordBreak: "break-all", background: "var(--ps)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 16, border: "1.5px solid var(--bd-strong)", borderRadius: 12, fontFamily: "monospace", fontSize: 14, wordBreak: "break-all", background: "var(--ps)" }}>
           <span style={{ flex: 1 }}>{pw}</span>
-          <button className="btn btn-g" onClick={cp}><I.Copy size={14} /></button>
-          <button className="btn btn-g" onClick={gen}><I.RefreshCw size={14} /></button>
+          <button className="btn btn-g" onClick={() => copy(pw)}><I.Copy size={16} /></button>
+          <button className="btn btn-g" onClick={gen}><I.RefreshCw size={16} /></button>
         </div>
-        <div style={{ marginTop: 10, color: c, fontSize: 12, fontWeight: 600 }}>Kekuatan: {strength} {copied && "• Tersalin!"}</div>
+        <div style={{ marginTop: 12, color: c, fontSize: 13, fontWeight: 700 }}>Kekuatan: {strength}</div>
       </div>
       <div className="card">
-        <div className="tag" style={{ marginBottom: 5 }}>PANJANG: {len}</div>
+        <div className="tag" style={{ marginBottom: 6 }}>PANJANG: {len}</div>
         <input type="range" min={4} max={64} value={len} onChange={(e) => setLen(+e.target.value)} style={{ width: "100%", accentColor: "var(--p)" }} />
-        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 12 }}>
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 14 }}>
           {[["Huruf Besar", up, setUp], ["Huruf Kecil", lo, setLo], ["Angka", num, setNum], ["Simbol", sym, setSym]].map(([l, v, s]) => (
-            <label key={l} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-              <input type="checkbox" checked={v} onChange={(e) => s(e.target.checked)} />{l}
-            </label>
+            <label key={l} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}><input type="checkbox" checked={v} onChange={(e) => s(e.target.checked)} />{l}</label>
           ))}
         </div>
       </div>
@@ -1056,82 +875,110 @@ export function PasswordStrength() {
   return (
     <div className="col">
       <input type="password" className="inp" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Masukkan password..." />
-      {pw && (
-        <>
-          <div className="card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ color: cl[a.score], fontWeight: 700, fontSize: 15 }}>{lv[a.score]}</span>
-              <span className="mut">Skor: {a.score}/6</span>
+      {pw && <>
+        <div className="card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ color: cl[a.score], fontWeight: 800, fontSize: 16 }}>{lv[a.score]}</span>
+            <span className="mut">Skor: {a.score}/6</span>
+          </div>
+          <div style={{ height: 10, background: "var(--bd)", borderRadius: 5, marginTop: 10, overflow: "hidden" }}>
+            <div style={{ width: `${(a.score / 6) * 100}%`, height: "100%", background: cl[a.score], transition: "0.3s" }} />
+          </div>
+        </div>
+        <div className="card">
+          <div className="mut">Perkiraan waktu crack</div>
+          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 800, color: cl[a.score] }}>{fmtTime(a.crack)}</div>
+          <div className="soft" style={{ marginTop: 6 }}>Entropi: {a.entropy.toFixed(0)} bits</div>
+        </div>
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          {[["Min 12 karakter", a.checks.length], ["Huruf besar", a.checks.upper], ["Huruf kecil", a.checks.lower], ["Angka", a.checks.numbers], ["Simbol", a.checks.symbols], ["Min 16 karakter", a.checks.long]].map(([l, v]) => (
+            <div key={l} style={{ padding: 12, border: `1.5px solid ${v ? "var(--green)" : "var(--bd)"}`, borderRadius: 11, fontSize: 12, color: v ? "var(--green)" : "var(--mut)", display: "flex", gap: 8, alignItems: "center", fontWeight: 600 }}>
+              <span>{v ? "OK" : "X"}</span> {l}
             </div>
-            <div style={{ height: 8, background: "var(--bd)", borderRadius: 4, marginTop: 10, overflow: "hidden" }}>
-              <div style={{ width: `${(a.score / 6) * 100}%`, height: "100%", background: cl[a.score], transition: "0.3s" }} />
-            </div>
-          </div>
-          <div className="card">
-            <div className="mut">Perkiraan waktu crack</div>
-            <div style={{ marginTop: 4, fontSize: 20, fontWeight: 700, color: cl[a.score] }}>{fmtTime(a.crack)}</div>
-            <div className="soft" style={{ marginTop: 4 }}>Entropi: {a.entropy.toFixed(0)} bits</div>
-          </div>
-          <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-            {[["Min 12 karakter", a.checks.length], ["Huruf besar", a.checks.upper], ["Huruf kecil", a.checks.lower], ["Angka", a.checks.numbers], ["Simbol", a.checks.symbols], ["Min 16 karakter", a.checks.long]].map(([l, v]) => (
-              <div key={l} style={{ padding: 11, border: `1px solid ${v ? "#22c55e" : "var(--bd)"}`, borderRadius: 10, fontSize: 12, color: v ? "#22c55e" : "var(--mut)", display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ fontWeight: 700 }}>{v ? "OK" : "X"}</span> {l}
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+          ))}
+        </div>
+      </>}
     </div>
   );
 }
 
-/* ============ MEDIA / DOWNLOADER ============ */
-export function TikTokDownloader() {
+/* ============ DOWNLOADER (AUTO-DOWNLOAD) ============ */
+export function TikTokDownloader({ onToast, onHistory }) {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [r, setR] = useState(null);
-  const [e, setE] = useState("");
+  const [dlState, setDlState] = useState({});
+
   const go = async () => {
     if (!url) return;
-    setLoading(true); setE(""); setR(null);
+    setLoading(true); setR(null);
     try {
       const res = await fetch("/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "tiktok", url }) });
       const d = await res.json();
-      if (!res.ok) setE(d.error || "Gagal"); else setR(d);
-    } catch { setE("Kesalahan jaringan."); }
+      if (!res.ok) {
+        onToast?.(d.error || "Gagal memproses.", "error");
+      } else {
+        setR(d);
+        onToast?.("Video siap diunduh", "success");
+        onHistory?.("downloader-tiktok", { url, title: d.title, author: d.author });
+        // AUTO-DOWNLOAD
+        setTimeout(() => handleDownload(d.noWm || d.video, `${(d.title || "tiktok").slice(0, 30).replace(/[^a-z0-9]/gi, "_")}_no_wm.mp4`, "video"), 400);
+      }
+    } catch {
+      onToast?.("Kesalahan jaringan.", "error");
+    }
     setLoading(false);
   };
+
+  const handleDownload = async (targetUrl, filename, key) => {
+    setDlState((s) => ({ ...s, [key]: 0 }));
+    try {
+      await autoDownload(targetUrl, filename, (p) => setDlState((s) => ({ ...s, [key]: p })));
+      onToast?.(`${filename} terunduh`, "success");
+    } catch (e) {
+      onToast?.("Gagal mengunduh: " + e.message, "error");
+    } finally {
+      setDlState((s) => { const n = { ...s }; delete n[key]; return n; });
+    }
+  };
+
   return (
     <div className="col">
       <div className="card">
-        <div className="tag" style={{ marginBottom: 8 }}>URL VIDEO TIKTOK</div>
+        <div className="tag" style={{ marginBottom: 10 }}>URL VIDEO TIKTOK</div>
         <div className="row">
           <input className="inp" style={{ flex: 1, minWidth: 200 }} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.tiktok.com/@user/video/..." />
           <button className="btn btn-p" disabled={loading || !url} onClick={go}>
-            {loading ? <I.Loader2 size={14} className="spin" /> : <I.Download size={14} />}
-            {loading ? "Memproses..." : "Download"}
+            {loading ? <I.Loader2 size={16} className="spin" /> : <I.Download size={16} />}
+            {loading ? "Memproses..." : "Download Otomatis"}
           </button>
         </div>
-        {e && <div style={{ marginTop: 10, padding: 10, background: "rgba(239,68,68,0.1)", borderRadius: 8, color: "#ef4444", fontSize: 13 }}>{e}</div>}
+        <div className="soft" style={{ marginTop: 10 }}>Download akan otomatis dimulai setelah video diproses.</div>
       </div>
       {r && (
         <div className="card fade">
           <div className="grid" style={{ gridTemplateColumns: "1fr 1.2fr" }}>
-            <img src={r.cover} style={{ width: "100%", borderRadius: 12, objectFit: "cover" }} />
+            <img src={r.cover} style={{ width: "100%", borderRadius: 14, objectFit: "cover" }} />
             <div>
-              <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.4 }}>{r.title}</div>
+              <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.4 }}>{r.title}</div>
               <div className="mut" style={{ marginTop: 6 }}>@{r.author} {r.nickname && `• ${r.nickname}`}</div>
-              <div className="row" style={{ marginTop: 10 }}>
+              <div className="row" style={{ marginTop: 12 }}>
                 {[["Play", r.stats?.plays], ["Like", r.stats?.likes], ["Komen", r.stats?.comments], ["Share", r.stats?.shares]].map(([l, v]) => (
-                  <div key={l} style={{ padding: "4px 10px", border: "1px solid var(--bd)", borderRadius: 8, fontSize: 11 }}>
+                  <div key={l} style={{ padding: "5px 11px", border: "1px solid var(--bd)", borderRadius: 9, fontSize: 11 }}>
                     <span style={{ color: "var(--mut)" }}>{l}:</span> <b>{fmt(v)}</b>
                   </div>
                 ))}
               </div>
               <div className="col" style={{ marginTop: 14 }}>
-                <a className="btn btn-p" href={r.noWm} target="_blank" rel="noopener"><I.Download size={14} />Tanpa Watermark</a>
-                <a className="btn btn-s" href={r.video} target="_blank" rel="noopener"><I.Download size={14} />HD</a>
-                {r.music && <a className="btn btn-s" href={r.music} target="_blank" rel="noopener"><I.Music size={14} />Audio</a>}
+                <button className="btn btn-p" disabled={dlState["video"] != null} onClick={() => handleDownload(r.noWm, `${(r.title || "tiktok").slice(0, 30).replace(/[^a-z0-9]/gi, "_")}_no_wm.mp4`, "video")}>
+                  {dlState["video"] != null ? <><I.Loader2 size={14} className="spin" />{dlState["video"]}%</> : <><I.Download size={14} />Tanpa Watermark</>}
+                </button>
+                <button className="btn btn-s" disabled={dlState["hd"] != null} onClick={() => handleDownload(r.video, `${(r.title || "tiktok").slice(0, 30).replace(/[^a-z0-9]/gi, "_")}_hd.mp4`, "hd")}>
+                  {dlState["hd"] != null ? <><I.Loader2 size={14} className="spin" />{dlState["hd"]}%</> : <><I.Download size={14} />HD</>}
+                </button>
+                {r.music && <button className="btn btn-s" disabled={dlState["music"] != null} onClick={() => handleDownload(r.music, "audio.mp3", "music")}>
+                  {dlState["music"] != null ? <><I.Loader2 size={14} className="spin" />{dlState["music"]}%</> : <><I.Music size={14} />Audio</>}
+                </button>}
               </div>
             </div>
           </div>
@@ -1141,166 +988,219 @@ export function TikTokDownloader() {
   );
 }
 
-export function YouTubeDownloader() {
+export function YouTubeDownloader({ onToast, onHistory }) {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [r, setR] = useState(null);
-  const [e, setE] = useState("");
   const [fb, setFb] = useState("");
+  const [e, setE] = useState("");
+  const [dlState, setDlState] = useState({});
+
   const go = async () => {
     if (!url) return;
     setLoading(true); setE(""); setR(null); setFb("");
     try {
       const res = await fetch("/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "youtube", url }) });
       const d = await res.json();
-      if (!res.ok) { setE(d.error || "Gagal"); if (d.videoId) setFb(d.videoId); }
-      else setR(d);
-    } catch { setE("Kesalahan jaringan."); }
+      if (!res.ok) {
+        setE(d.error || "Gagal");
+        if (d.videoId) setFb(d.videoId);
+        onToast?.(d.error || "Gagal memproses", "error");
+      } else {
+        setR(d);
+        onToast?.("Video siap diunduh", "success");
+        onHistory?.("downloader-youtube", { url, title: d.title });
+        setTimeout(() => handleDownload(d.downloadUrl, `${(d.title || "youtube").slice(0, 30).replace(/[^a-z0-9]/gi, "_")}.mp4`, "video"), 400);
+      }
+    } catch {
+      setE("Kesalahan jaringan.");
+      onToast?.("Kesalahan jaringan", "error");
+    }
     setLoading(false);
   };
+
+  const handleDownload = async (targetUrl, filename, key) => {
+    setDlState((s) => ({ ...s, [key]: 0 }));
+    try {
+      await autoDownload(targetUrl, filename, (p) => setDlState((s) => ({ ...s, [key]: p })));
+      onToast?.("Video terunduh", "success");
+    } catch (err) {
+      onToast?.("Gagal unduh: buka di tab baru untuk unduh manual.", "error");
+      // Fallback: buka tab baru
+      window.open(targetUrl, "_blank", "noopener");
+    } finally {
+      setDlState((s) => { const n = { ...s }; delete n[key]; return n; });
+    }
+  };
+
   return (
     <div className="col">
       <div className="card">
-        <div className="tag" style={{ marginBottom: 8 }}>URL VIDEO YOUTUBE</div>
+        <div className="tag" style={{ marginBottom: 10 }}>URL VIDEO YOUTUBE</div>
         <div className="row">
           <input className="inp" style={{ flex: 1, minWidth: 200 }} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." />
           <button className="btn btn-p" disabled={loading || !url} onClick={go}>
-            {loading ? <I.Loader2 size={14} className="spin" /> : <I.Youtube size={14} />}
-            {loading ? "Memproses..." : "Download"}
+            {loading ? <I.Loader2 size={16} className="spin" /> : <I.Youtube size={16} />}
+            {loading ? "Memproses..." : "Download Otomatis"}
           </button>
         </div>
-        {e && <div style={{ marginTop: 10, padding: 10, background: "rgba(239,68,68,0.1)", borderRadius: 8, color: "#ef4444", fontSize: 13 }}>{e}</div>}
+        <div className="soft" style={{ marginTop: 10 }}>Download otomatis dimulai setelah video berhasil diambil.</div>
+        {e && <div style={{ marginTop: 12, padding: 12, background: "rgba(239,68,68,0.1)", borderRadius: 10, color: "var(--red)", fontSize: 13 }}>{e}</div>}
       </div>
-      {fb && !r && (
-        <div className="card">
-          <img src={`https://img.youtube.com/vi/${fb}/maxresdefault.jpg`} style={{ width: "100%", borderRadius: 12 }} />
-          <div className="mut" style={{ marginTop: 10 }}>Thumbnail berhasil diambil. Server downloader sedang sibuk, coba lagi beberapa saat.</div>
+      {fb && !r && <div className="card">
+        <img src={`https://img.youtube.com/vi/${fb}/maxresdefault.jpg`} style={{ width: "100%", borderRadius: 14 }} />
+        <div className="mut" style={{ marginTop: 12 }}>Server downloader sedang sibuk. Coba klik Download lagi dalam 10–30 detik.</div>
+      </div>}
+      {r && <div className="card fade">
+        <img src={r.thumbnail} style={{ width: "100%", borderRadius: 14 }} />
+        <div style={{ fontWeight: 700, marginTop: 14 }}>{r.title}</div>
+        <div className="row" style={{ marginTop: 14 }}>
+          <button className="btn btn-p" disabled={dlState["video"] != null} onClick={() => handleDownload(r.downloadUrl, `${(r.title || "youtube").slice(0, 30).replace(/[^a-z0-9]/gi, "_")}.mp4`, "video")}>
+            {dlState["video"] != null ? <><I.Loader2 size={14} className="spin" />{dlState["video"]}%</> : <><I.Download size={14} />Unduh Ulang</>}
+          </button>
+          <a className="btn btn-s" href={r.downloadUrl} target="_blank" rel="noopener"><I.ExternalLink size={14} />Buka Manual</a>
         </div>
-      )}
-      {r && (
-        <div className="card fade">
-          <img src={r.thumbnail} style={{ width: "100%", borderRadius: 12 }} />
-          <div style={{ fontWeight: 600, marginTop: 12 }}>{r.title}</div>
-          <div className="row" style={{ marginTop: 12 }}>
-            <a className="btn btn-p" href={r.downloadUrl} target="_blank" rel="noopener"><I.Download size={14} />Unduh</a>
-            <a className="btn btn-s" href={r.downloadUrl} target="_blank" rel="noopener"><I.ExternalLink size={14} />Buka</a>
-          </div>
-        </div>
-      )}
-      <div className="card" style={{ background: "var(--ps)", border: "none" }}>
-        <div className="soft">CATATAN</div>
-        <div className="mut" style={{ marginTop: 4 }}>Server downloader pihak ketiga dapat berubah sewaktu-waktu. Jika gagal, coba lagi beberapa saat.</div>
-      </div>
+      </div>}
     </div>
   );
 }
 
 export function InstagramDownloader() {
   return (
-    <div className="card" style={{ padding: 24 }}>
-      <div className="row" style={{ gap: 8, marginBottom: 8 }}><I.Info size={16} style={{ color: "var(--p)" }} /><b>Instagram Downloader (Beta)</b></div>
-      <p className="mut">Layanan Instagram downloader memerlukan API berbayar. Untuk saat ini gunakan TikTok Downloader yang gratis, stabil, dan tanpa watermark.</p>
+    <div className="card" style={{ padding: 28 }}>
+      <div className="row" style={{ gap: 10, marginBottom: 10 }}>
+        <div className="ic"><I.Info size={20} /></div>
+        <b style={{ fontSize: 16 }}>Instagram Downloader</b>
+      </div>
+      <p className="mut" style={{ lineHeight: 1.7 }}>Instagram memerlukan autentikasi yang tidak tersedia secara publik gratis. Gunakan TikTok Downloader yang berfungsi penuh untuk saat ini.</p>
     </div>
   );
 }
 
 export function FacebookDownloader() {
   return (
-    <div className="card" style={{ padding: 24 }}>
-      <div className="row" style={{ gap: 8, marginBottom: 8 }}><I.Info size={16} style={{ color: "var(--p)" }} /><b>Facebook Downloader (Beta)</b></div>
-      <p className="mut">Layanan Facebook downloader memerlukan API berbayar. Untuk saat ini gunakan TikTok Downloader yang gratis, stabil, dan tanpa watermark.</p>
+    <div className="card" style={{ padding: 28 }}>
+      <div className="row" style={{ gap: 10, marginBottom: 10 }}>
+        <div className="ic"><I.Info size={20} /></div>
+        <b style={{ fontSize: 16 }}>Facebook Downloader</b>
+      </div>
+      <p className="mut" style={{ lineHeight: 1.7 }}>Facebook Downloader memerlukan API berbayar. Gunakan TikTok Downloader yang berfungsi penuh untuk saat ini.</p>
     </div>
   );
 }
 
-export function TempMail() {
+export function TempMail({ onToast, onHistory }) {
   const [email, setEmail] = useState("");
   const [token, setToken] = useState("");
   const [msgs, setMsgs] = useState([]);
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [err, setErr] = useState("");
+
   const create = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); setErr("");
     try {
       const r = await fetch("/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "tempmail-create" }) });
       const d = await r.json();
-      if (d.email && d.token) {
+      if (!r.ok || d.error) {
+        setErr(d.error || "Gagal membuat email sementara");
+        onToast?.(d.error || "Gagal membuat email", "error");
+      } else {
         setEmail(d.email); setToken(d.token); setMsgs([]); setDetail(null);
         localStorage.setItem("alltool-mail", JSON.stringify({ email: d.email, token: d.token }));
+        onToast?.("Email sementara dibuat", "success");
+        onHistory?.("temp-mail", { email: d.email });
       }
-    } catch {}
+    } catch {
+      setErr("Kesalahan jaringan");
+      onToast?.("Kesalahan jaringan", "error");
+    }
     setLoading(false);
-  }, []);
+  }, [onToast, onHistory]);
+
   const inbox = useCallback(async (tk) => {
     if (!tk) return;
-    setLoading(true);
+    setRefreshing(true);
     try {
       const r = await fetch("/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "tempmail-inbox", token: tk }) });
       const d = await r.json();
       setMsgs(Array.isArray(d) ? d : []);
     } catch {}
-    setLoading(false);
+    setRefreshing(false);
   }, []);
+
   const open = async (id) => {
     setLoading(true);
     try {
       const r = await fetch("/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "tempmail-read", token, id }) });
       setDetail(await r.json());
-    } catch {}
+    } catch { onToast?.("Gagal membuka email", "error"); }
     setLoading(false);
   };
+
   useEffect(() => {
     const s = localStorage.getItem("alltool-mail");
     if (s) {
-      try { const { email: e, token: tk } = JSON.parse(s); setEmail(e); setToken(tk); inbox(tk); } catch {}
+      try { const { email: e, token: tk } = JSON.parse(s); setEmail(e); setToken(tk); inbox(tk); } catch { create(); }
     } else create();
   }, [create, inbox]);
-  const cp = async () => { if (await copy(email)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } };
+
+  // Auto refresh inbox setiap 12 detik
+  useEffect(() => {
+    if (!token) return;
+    const i = setInterval(() => inbox(token), 12000);
+    return () => clearInterval(i);
+  }, [token, inbox]);
+
   return (
     <div className="col">
       <div className="card">
-        <div className="tag" style={{ marginBottom: 8 }}>ALAMAT EMAIL SEMENTARA</div>
+        <div className="tag" style={{ marginBottom: 10 }}>ALAMAT EMAIL SEMENTARA</div>
+        {err && <div style={{ marginBottom: 12, padding: 12, background: "rgba(239,68,68,0.1)", borderRadius: 10, color: "var(--red)", fontSize: 13 }}>{err}</div>}
         <div className="row">
-          <div className="inp" style={{ flex: 1, minWidth: 200, fontFamily: "monospace", fontSize: 12, wordBreak: "break-all", background: "var(--ps)" }}>
-            {email || "Memuat..."}
+          <div className="inp" style={{ flex: 1, minWidth: 200, fontFamily: "monospace", fontSize: 12, wordBreak: "break-all", background: "var(--ps)", borderColor: "var(--bd-strong)" }}>
+            {loading && !email ? "Memuat..." : email || "(kosong)"}
           </div>
-          <button className="btn btn-s" onClick={cp}><I.Copy size={14} />{copied ? "Tersalin!" : "Salin"}</button>
-          <button className="btn btn-p" disabled={loading} onClick={create}><I.RefreshCw size={14} />Baru</button>
+          <button className="btn btn-s" onClick={() => { copy(email); onToast?.("Email tersalin", "success"); }} disabled={!email}><I.Copy size={14} />Salin</button>
+          <button className="btn btn-p" disabled={loading} onClick={create}>
+            {loading ? <I.Loader2 size={14} className="spin" /> : <I.RefreshCw size={14} />}Baru
+          </button>
         </div>
       </div>
       {detail ? (
         <div className="card fade">
-          <button className="btn btn-g" onClick={() => setDetail(null)} style={{ marginBottom: 10 }}><I.ArrowLeft size={14} />Kembali</button>
-          <div style={{ fontWeight: 600, fontSize: 15 }}>{detail.subject || "(Tanpa subjek)"}</div>
-          <div className="mut" style={{ marginTop: 4 }}>Dari: {detail.from?.address}</div>
-          <div style={{ marginTop: 14, padding: 14, border: "1px solid var(--bd)", borderRadius: 10, fontSize: 13, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+          <button className="btn btn-g" onClick={() => setDetail(null)} style={{ marginBottom: 12 }}><I.ArrowLeft size={16} />Kembali</button>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>{detail.subject || "(Tanpa subjek)"}</div>
+          <div className="mut" style={{ marginTop: 6 }}>Dari: {detail.from?.address}</div>
+          <div style={{ marginTop: 16, padding: 16, border: "1.5px solid var(--bd)", borderRadius: 12, fontSize: 13, whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.7 }}>
             {detail.text || "(Tidak ada isi teks)"}
           </div>
         </div>
       ) : (
         <>
           <div className="row" style={{ justifyContent: "space-between" }}>
-            <b style={{ fontSize: 15 }}>Kotak Masuk ({msgs.length})</b>
-            <button className="btn btn-s" disabled={loading} onClick={() => inbox(token)}>
-              {loading ? <I.Loader2 size={14} className="spin" /> : <I.RefreshCw size={14} />}Refresh
+            <b style={{ fontSize: 16 }}>Kotak Masuk {msgs.length > 0 && `(${msgs.length})`}</b>
+            <button className="btn btn-s" disabled={refreshing} onClick={() => inbox(token)}>
+              {refreshing ? <I.Loader2 size={14} className="spin" /> : <I.RefreshCw size={14} />}Refresh
             </button>
           </div>
-          {msgs.length === 0 && !loading && (
-            <div className="card" style={{ textAlign: "center", padding: 44, color: "var(--mut)" }}>
-              <I.Mail size={36} style={{ margin: "0 auto 10px", opacity: 0.4 }} />
-              <div style={{ fontSize: 13 }}>Belum ada email masuk</div>
+          {msgs.length === 0 && !refreshing && (
+            <div className="card" style={{ textAlign: "center", padding: 48, color: "var(--mut)" }}>
+              <I.Mail size={44} style={{ margin: "0 auto 12px", opacity: 0.35 }} />
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Belum ada email masuk</div>
+              <div className="soft" style={{ marginTop: 6 }}>Auto-refresh setiap 12 detik</div>
             </div>
           )}
           {msgs.map((m) => (
             <button key={m.id} className="card card-int" style={{ textAlign: "left", width: "100%" }} onClick={() => open(m.id)}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || "(Tanpa subjek)"}</div>
-                  <div className="mut" style={{ marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.from?.address}</div>
-                  <div className="mut" style={{ marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.intro}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.subject || "(Tanpa subjek)"}</div>
+                  <div className="mut" style={{ marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.from?.address}</div>
+                  <div className="mut" style={{ marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>{m.intro}</div>
                 </div>
-                <div className="soft" style={{ flexShrink: 0 }}>{new Date(m.createdAt).toLocaleTimeString("id-ID")}</div>
+                <div className="soft" style={{ flexShrink: 0 }}>{new Date(m.createdAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</div>
               </div>
             </button>
           ))}
@@ -1310,7 +1210,7 @@ export function TempMail() {
   );
 }
 
-export function IpLookup() {
+export function IpLookup({ onToast }) {
   const [ip, setIp] = useState("");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1320,8 +1220,9 @@ export function IpLookup() {
     try {
       const r = await fetch("/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ip-lookup", ip: target }) });
       const d = await r.json();
-      if (d.error) setE(d.reason || "Tidak ditemukan"); else setData(d);
-    } catch { setE("Gagal mengambil data."); }
+      if (d.error) { setE(d.reason || "Tidak ditemukan"); onToast?.("IP tidak ditemukan", "error"); }
+      else { setData(d); onToast?.("Info IP berhasil diambil", "success"); }
+    } catch { setE("Gagal"); }
     setLoading(false);
   };
   useEffect(() => { go(); }, []);
@@ -1335,30 +1236,24 @@ export function IpLookup() {
             {loading ? <I.Loader2 size={14} className="spin" /> : <I.Globe size={14} />}Cek IP
           </button>
         </div>
-        {e && <div style={{ marginTop: 10, padding: 10, background: "rgba(239,68,68,0.1)", borderRadius: 8, color: "#ef4444", fontSize: 13 }}>{e}</div>}
+        {e && <div style={{ marginTop: 12, padding: 12, background: "rgba(239,68,68,0.1)", borderRadius: 10, color: "var(--red)", fontSize: 13 }}>{e}</div>}
       </div>
-      {data && (
-        <div className="card">
-          {rows.map(([l, k]) => (
-            <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--bd)" }}>
-              <span className="mut">{l}</span>
-              <span style={{ fontSize: 13, fontWeight: 500 }}>{String(data[k] ?? "-")}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {data && <div className="card">
+        {rows.map(([l, k]) => (
+          <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderBottom: "1px solid var(--bd)" }}>
+            <span className="mut">{l}</span>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{String(data[k] ?? "-")}</span>
+          </div>
+        ))}
+      </div>}
     </div>
   );
 }
 
 /* ============ UTILITY ============ */
-export function ColorPicker() {
+export function ColorPicker({ onToast }) {
   const [c, setC] = useState("#7c3aed");
-  const [copied, setCopied] = useState("");
-  const h2r = (h) => {
-    const x = h.replace("#", "");
-    return { r: parseInt(x.slice(0, 2), 16) || 0, g: parseInt(x.slice(2, 4), 16) || 0, b: parseInt(x.slice(4, 6), 16) || 0 };
-  };
+  const h2r = (h) => { const x = h.replace("#", ""); return { r: parseInt(x.slice(0, 2), 16) || 0, g: parseInt(x.slice(2, 4), 16) || 0, b: parseInt(x.slice(4, 6), 16) || 0 }; };
   const r2h = (r, g, b) => {
     r /= 255; g /= 255; b /= 255;
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
@@ -1378,49 +1273,41 @@ export function ColorPicker() {
   const hsl = r2h(rgb.r, rgb.g, rgb.b);
   const fmts = [["HEX", c.toUpperCase()], ["RGB", `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`], ["HSL", `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`]];
   const pal = ["#7c3aed", "#a78bfa", "#c4b5fd", "#ede9fe", "#0ea5e9", "#06b6d4", "#14b8a6", "#10b981", "#f59e0b", "#ef4444", "#ec4899", "#f43f5e", "#1e293b", "#334155", "#64748b", "#94a3b8"];
-  const cp = async (v, n) => { if (await copy(v)) { setCopied(n); setTimeout(() => setCopied(""), 1500); } };
   return (
     <div className="col">
       <div className="card">
-        <div className="row" style={{ gap: 18 }}>
-          <input type="color" value={c} onChange={(e) => setC(e.target.value)} style={{ width: 80, height: 80, border: "none", borderRadius: 14, cursor: "pointer", boxShadow: "var(--shadow)" }} />
-          <input className="inp" style={{ flex: 1, minWidth: 150, fontFamily: "monospace", fontSize: 15 }} value={c} onChange={(e) => setC(e.target.value)} />
+        <div className="row" style={{ gap: 20 }}>
+          <input type="color" value={c} onChange={(e) => setC(e.target.value)} style={{ width: 90, height: 90, border: "none", borderRadius: 16, cursor: "pointer", boxShadow: "var(--shadow-lg)" }} />
+          <input className="inp" style={{ flex: 1, minWidth: 150, fontFamily: "monospace", fontSize: 16 }} value={c} onChange={(e) => setC(e.target.value)} />
         </div>
-        <div className="col" style={{ marginTop: 14 }}>
+        <div className="col" style={{ marginTop: 16 }}>
           {fmts.map(([n, v]) => (
-            <div key={n} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 12, border: "1px solid var(--bd)", borderRadius: 10 }}>
+            <div key={n} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 14, border: "1.5px solid var(--bd)", borderRadius: 12 }}>
               <div>
                 <div className="mut">{n}</div>
-                <div style={{ fontFamily: "monospace", fontSize: 14, marginTop: 2 }}>{v}</div>
+                <div style={{ fontFamily: "monospace", fontSize: 15, marginTop: 3 }}>{v}</div>
               </div>
-              <button className="btn btn-g" onClick={() => cp(v, n)}><I.Copy size={14} /></button>
+              <button className="btn btn-g" onClick={() => { copy(v); onToast?.(`${n} tersalin`, "success"); }}><I.Copy size={16} /></button>
             </div>
           ))}
         </div>
       </div>
       <div className="card">
-        <div className="tag" style={{ marginBottom: 10 }}>PALET CEPAT</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8 }}>
-          {pal.map((x) => (
-            <button key={x} onClick={() => setC(x)} style={{ aspectRatio: 1, background: x, borderRadius: 12, cursor: "pointer", transition: "transform 0.15s" }}
-              onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.9)")}
-              onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
-              onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
-            />
-          ))}
+        <div className="tag" style={{ marginBottom: 12 }}>PALET CEPAT</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 10 }}>
+          {pal.map((x) => <button key={x} onClick={() => setC(x)} style={{ aspectRatio: 1, background: x, borderRadius: 14, cursor: "pointer", transition: "transform 0.15s", boxShadow: "var(--shadow)" }} />)}
         </div>
       </div>
-      {copied && <div style={{ color: "#22c55e", fontSize: 12, fontWeight: 500 }}>Tersalin: {copied}</div>}
     </div>
   );
 }
 
 export function CronParser() {
   const [c, setC] = useState("*/5 * * * *");
-  const presets = [["Setiap menit", "* * * * *"], ["Setiap 5 menit", "*/5 * * * *"], ["Setiap jam", "0 * * * *"], ["Harian 00:00", "0 0 * * *"], ["Senin 09:00", "0 9 * * 1"], ["Tanggal 1", "0 0 1 * *"]];
+  const presets = [["Setiap menit", "* * * * *"], ["Setiap 5 menit", "*/5 * * * *"], ["Setiap jam", "0 * * * *"], ["Harian 00:00", "0 0 * * *"], ["Senin 09:00", "0 9 * * 1"]];
   const parts = c.trim().split(/\s+/);
   const desc = () => {
-    if (parts.length !== 5) return "Format tidak valid. Gunakan 5 field: menit jam hari bulan minggu";
+    if (parts.length !== 5) return "Format tidak valid. Gunakan 5 field.";
     const [m, h, d, mo, dw] = parts;
     let s = "";
     if (m.startsWith("*/")) s += `Setiap ${m.slice(2)} menit`;
@@ -1434,21 +1321,14 @@ export function CronParser() {
   };
   return (
     <div className="col">
-      <input className="inp" style={{ fontFamily: "monospace", fontSize: 15 }} value={c} onChange={(e) => setC(e.target.value)} />
-      <div className="row">
-        {presets.map(([l, v]) => (
-          <button key={v} className="chip" onClick={() => setC(v)}>{l}</button>
-        ))}
-      </div>
-      <div className="card">
-        <div className="tag" style={{ marginBottom: 6 }}>PENJELASAN</div>
-        <div style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.5 }}>{desc()}</div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+      <input className="inp" style={{ fontFamily: "monospace", fontSize: 16 }} value={c} onChange={(e) => setC(e.target.value)} />
+      <div className="row">{presets.map(([l, v]) => <button key={v} className="chip" onClick={() => setC(v)}>{l}</button>)}</div>
+      <div className="card"><div className="tag" style={{ marginBottom: 8 }}>PENJELASAN</div><div style={{ fontSize: 17, fontWeight: 600, lineHeight: 1.5 }}>{desc()}</div></div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
         {["Menit", "Jam", "Hari", "Bulan", "Minggu"].map((f, i) => (
-          <div key={f} className="card" style={{ textAlign: "center", padding: 12 }}>
+          <div key={f} className="card" style={{ textAlign: "center", padding: 14 }}>
             <div className="soft">{f}</div>
-            <div style={{ fontFamily: "monospace", fontWeight: 700, color: "var(--p)", marginTop: 6, fontSize: 15 }}>{parts[i] || "-"}</div>
+            <div style={{ fontFamily: "monospace", fontWeight: 800, color: "var(--p)", marginTop: 8, fontSize: 16 }}>{parts[i] || "-"}</div>
           </div>
         ))}
       </div>
@@ -1464,33 +1344,23 @@ export function BarcodeGenerator() {
     <div className="col">
       <div className="card">
         <div className="grid" style={{ gridTemplateColumns: "2fr 1fr" }}>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>TEKS / ANGKA</div>
-            <input className="inp" style={{ fontFamily: "monospace" }} value={t} onChange={(e) => setT(e.target.value)} />
-          </div>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>FORMAT</div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>TEKS / ANGKA</div><input className="inp" style={{ fontFamily: "monospace" }} value={t} onChange={(e) => setT(e.target.value)} /></div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>FORMAT</div>
             <select className="inp" value={ty} onChange={(e) => setTy(e.target.value)}>
-              <option value="code128">Code 128</option>
-              <option value="code39">Code 39</option>
-              <option value="ean13">EAN-13</option>
-              <option value="upca">UPC-A</option>
-              <option value="qrcode">QR Code</option>
+              <option value="code128">Code 128</option><option value="code39">Code 39</option><option value="ean13">EAN-13</option><option value="upca">UPC-A</option><option value="qrcode">QR Code</option>
             </select>
           </div>
         </div>
       </div>
-      {url && (
-        <div className="card" style={{ textAlign: "center" }}>
-          <img src={url} style={{ maxWidth: "100%", margin: "0 auto" }} />
-          <a className="btn btn-p" style={{ marginTop: 14 }} href={url} download="barcode.png"><I.Download size={14} />Unduh</a>
-        </div>
-      )}
+      {url && <div className="card" style={{ textAlign: "center" }}>
+        <img src={url} style={{ maxWidth: "100%", margin: "0 auto" }} />
+        <a className="btn btn-p" style={{ marginTop: 16 }} href={url} download="barcode.png"><I.Download size={14} />Unduh</a>
+      </div>}
     </div>
   );
 }
 
-export function TextToSpeech() {
+export function TextToSpeech({ onToast }) {
   const [t, setT] = useState("");
   const [voices, setVoices] = useState([]);
   const [v, setV] = useState("");
@@ -1513,8 +1383,7 @@ export function TextToSpeech() {
     const u = new SpeechSynthesisUtterance(t);
     const voice = voices.find((x) => x.name === v);
     if (voice) u.voice = voice;
-    u.rate = rate;
-    u.pitch = pitch;
+    u.rate = rate; u.pitch = pitch;
     u.onend = () => setPlaying(false);
     u.onstart = () => setPlaying(true);
     window.speechSynthesis.speak(u);
@@ -1524,19 +1393,13 @@ export function TextToSpeech() {
     <div className="col">
       <textarea className="txa" rows={6} value={t} onChange={(e) => setT(e.target.value)} placeholder="Teks untuk diucapkan..." />
       <div className="card">
-        <div className="tag" style={{ marginBottom: 5 }}>SUARA</div>
+        <div className="tag" style={{ marginBottom: 6 }}>SUARA</div>
         <select className="inp" value={v} onChange={(e) => setV(e.target.value)}>
           {voices.map((x) => <option key={x.name} value={x.name}>{x.name} ({x.lang})</option>)}
         </select>
-        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 12 }}>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>KECEPATAN: {rate.toFixed(1)}x</div>
-            <input type="range" min={0.5} max={2} step={0.1} value={rate} onChange={(e) => setRate(+e.target.value)} style={{ width: "100%", accentColor: "var(--p)" }} />
-          </div>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>NADA: {pitch.toFixed(1)}</div>
-            <input type="range" min={0.5} max={2} step={0.1} value={pitch} onChange={(e) => setPitch(+e.target.value)} style={{ width: "100%", accentColor: "var(--p)" }} />
-          </div>
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 14 }}>
+          <div><div className="tag" style={{ marginBottom: 6 }}>KECEPATAN: {rate.toFixed(1)}x</div><input type="range" min={0.5} max={2} step={0.1} value={rate} onChange={(e) => setRate(+e.target.value)} style={{ width: "100%", accentColor: "var(--p)" }} /></div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>NADA: {pitch.toFixed(1)}</div><input type="range" min={0.5} max={2} step={0.1} value={pitch} onChange={(e) => setPitch(+e.target.value)} style={{ width: "100%", accentColor: "var(--p)" }} /></div>
         </div>
       </div>
       <div className="row">
@@ -1547,7 +1410,7 @@ export function TextToSpeech() {
   );
 }
 
-export function RandomString() {
+export function RandomString({ onToast }) {
   const [len, setLen] = useState(16);
   const [n, setN] = useState(5);
   const [up, setUp] = useState(true);
@@ -1576,25 +1439,17 @@ export function RandomString() {
     <div className="col">
       <div className="card">
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>PANJANG: {len}</div>
-            <input type="range" min={4} max={128} value={len} onChange={(e) => setLen(+e.target.value)} style={{ width: "100%", accentColor: "var(--p)" }} />
-          </div>
-          <div>
-            <div className="tag" style={{ marginBottom: 5 }}>JUMLAH</div>
-            <input type="number" className="inp" value={n} onChange={(e) => setN(+e.target.value)} min={1} max={100} />
-          </div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>PANJANG: {len}</div><input type="range" min={4} max={128} value={len} onChange={(e) => setLen(+e.target.value)} style={{ width: "100%", accentColor: "var(--p)" }} /></div>
+          <div><div className="tag" style={{ marginBottom: 6 }}>JUMLAH</div><input type="number" className="inp" value={n} onChange={(e) => setN(+e.target.value)} min={1} max={100} /></div>
         </div>
-        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 12 }}>
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 14 }}>
           {[["Huruf Besar", up, setUp], ["Huruf Kecil", lo, setLo], ["Angka", num, setNum], ["Simbol", sym, setSym]].map(([l, v, s]) => (
-            <label key={l} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-              <input type="checkbox" checked={v} onChange={(e) => s(e.target.checked)} />{l}
-            </label>
+            <label key={l} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}><input type="checkbox" checked={v} onChange={(e) => s(e.target.checked)} />{l}</label>
           ))}
         </div>
-        <div className="row" style={{ marginTop: 14 }}>
-          <button className="btn btn-p" onClick={go}><I.RefreshCw size={14} />Generate</button>
-          {list.length > 0 && <button className="btn btn-s" onClick={() => copy(list.join("\n"))}><I.Copy size={14} />Copy Semua</button>}
+        <div className="row" style={{ marginTop: 16 }}>
+          <button className="btn btn-p" onClick={go}>Generate</button>
+          {list.length > 0 && <button className="btn btn-s" onClick={() => { copy(list.join("\n")); onToast?.("Tersalin", "success"); }}>Copy Semua</button>}
         </div>
       </div>
       <div className="col">
@@ -1607,4 +1462,4 @@ export function RandomString() {
       </div>
     </div>
   );
-        }
+}
