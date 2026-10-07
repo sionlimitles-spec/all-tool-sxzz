@@ -1,14 +1,13 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "AllTool - 40+ Alat Serbaguna Gratis",
-  description: "Downloader TikTok, YouTube, temp mail, dan 40+ tools gratis dalam satu platform.",
-  keywords: ["alltool", "tools", "downloader", "tiktok", "youtube", "temp mail"],
+  title: "AllTool Pro - 40+ Alat Serbaguna Gratis",
+  description: "Downloader TikTok & YouTube tanpa watermark, temp mail, JSON formatter, dan 40+ tools gratis.",
+  keywords: ["alltool", "downloader", "tiktok", "youtube", "temp mail"],
 };
 
 export const viewport = {
-  width: "device-width",
-  initialScale: 1,
+  width: "device-width", initialScale: 1, maximumScale: 5,
   themeColor: "#7c3aed",
 };
 
